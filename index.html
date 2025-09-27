@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pomodoro</title>
+  <meta name="color-scheme" content="light dark" />
+  <style>
+    :root{
+      --bg-color:#0f172a;
+      --overlay:0.35;
+      --blur:0px;
+      --fg:#f8fafc;
+      --muted:#cbd5e1;
+      --accent:#22d3ee;
+      --accent-2:#34d399;
+      --warn:#fb7185;
+      --ring:#10b981;
+      --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; font-family:var(--font); color:var(--fg);
+      background: var(--bg-color) center/cover fixed no-repeat;
+      display:grid; place-items:center;
+    }
+    .backdrop{position:fixed; inset:0; backdrop-filter: blur(var(--blur));}
+    .shade{position:fixed; inset:0; background:rgba(0,0,0,var(--overlay));}
+    .app{position:relative; width:min(900px, 96vw); margin:auto;}
+    .card{background:rgba(17,24,39,.55); border:1px solid rgba(148,163,184,.25); border-radius:20px; padding:24px; box-shadow: 0 10px 40px rgba(0,0,0,.35)}
+    h1{margin:0 0 8px; font-weight:700; letter-spacing:.5px; font-size:clamp(18px, 2.2vw, 22px); color:var(--muted)}
+    .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+    .grow{flex:1}
+    .pill{display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:9999px; border:1px solid rgba(148,163,184,.35); background:rgba(15,23,42,.5)}
+    button, select, input[type="number"], input[type="text"]{
+      font:inherit; color:var(--fg); background:rgba(2,6,23,.6);
+      border:1px solid rgba(148,163,184,.35); border-radius:12px; padding:10px 14px;
+    }
+    button{cursor:pointer; transition:transform .05s ease, background .2s}
+    button:hover{background:rgba(148,163,184,.15)}
+    button:active{transform:translateY(1px)}
+    .primary{border-color:transparent; background:linear-gradient(135deg,var(--accent), var(--accent-2)); color:#0b1220; font-weight:700}
+    .destructive{background:rgba(127,29,29,.35); border-color:rgba(248,113,113,.35)}
+    .timer{display:grid; place-items:center; padding: 16px 16px 6px;}
+    .time{font-variant-numeric:tabular-nums; font-weight:800; letter-spacing:1px;
+      font-size: clamp(56px, 14vw, 120px); line-height:1; text-shadow:0 3px 20px rgba(0,0,0,.35)}
+    .sub{opacity:.85; font-size:clamp(12px, 2.2vw, 14px)}
+    .modes{display:flex; gap:8px; flex-wrap:wrap}
+    .mode-btn{padding:8px 12px; border-radius:12px; border:1px solid rgba(148,163,184,.35); background:rgba(2,6,23,.6)}
+    .mode-btn[aria-pressed="true"]{background:rgba(45,212,191,.15); border-color:var(--ring)}
+    .controls{display:flex; gap:8px; flex-wrap:wrap; justify-content:center}
+    .ring{position:relative; width:min(70vmin, 520px); aspect-ratio:1;}
+    .ring svg{position:absolute; inset:0; width:100%; height:100%}
+    .ring .label{position:absolute; inset:0; display:grid; place-items:center}
+    .settings{display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-top:12px}
+    .field{display:grid; gap:6px}
+    .tip{font-size:12px; color:var(--muted)}
+    .link{font-weight:600; text-decoration:underline; text-underline-offset:3px}
+    .footer{margin-top:10px; display:flex; gap:10px; justify-content:space-between; align-items:center; color:var(--muted)}
+    .hidden{display:none !important}
+    .clock{font-size:12px;color:var(--muted);white-space:nowrap}
+  </style>
+</head>
+<body>
+  <div class="backdrop"></div>
+  <div class="shade"></div>
+  <main class="app card" role="application" aria-label="Pomodoro Timer">
+    <header class="row">
+      <h1 class="grow">⏱️ Pomodoro</h1>
+      <span id="clock" class="clock" aria-live="polite">0000-00-00 (月) 00:00:00</span>
+      <div class="pill">
+        <label><input id="autoStart" type="checkbox" /> 自動で次へ</label>
+        <label><input id="notif" type="checkbox" /> 通知</label>
+        <label><input id="sound" type="checkbox" checked /> 音</label>
+      </div>
+    </header>
+
+    <section class="timer">
+      <div class="ring" aria-live="polite">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle cx="60" cy="60" r="56" fill="none" stroke="rgba(148,163,184,.25)" stroke-width="6"/>
+          <circle id="progress" cx="60" cy="60" r="56" fill="none" stroke="var(--ring)" stroke-width="6" stroke-linecap="round"
+                  stroke-dasharray="352" stroke-dashoffset="352"/>
+        </svg>
+        <div class="label">
+          <div class="time" id="time">25:00</div>
+          <div class="sub" id="status">ポモドーロ #1</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="row" style="justify-content:center; margin:10px 0 6px">
+      <div class="modes" role="tablist" aria-label="Modes">
+        <button class="mode-btn" data-mode="focus" aria-pressed="true">集中</button>
+        <button class="mode-btn" data-mode="short">小休憩</button>
+        <button class="mode-btn" data-mode="long">長休憩</button>
+      </div>
+    </section>
+
+    <section class="controls" aria-label="controls">
+      <button id="start" class="primary">開始/一時停止 (Space)</button>
+      <button id="reset">リセット (R)</button>
+      <button id="skip">スキップ (S)</button>
+    </section>
+
+    <details style="margin-top:14px">
+      <summary>⚙️ 設定をひらく</summary>
+      <div class="settings">
+        <div class="field"><label>集中 (分)<input type="number" id="mFocus" min="1" value="25"></label></div>
+        <div class="field"><label>小休憩 (分)<input type="number" id="mShort" min="1" value="5"></label></div>
+        <div class="field"><label>長休憩 (分)<input type="number" id="mLong" min="1" value="15"></label></div>
+        <div class="field"><label>長休憩までの回数<input type="number" id="cycles" min="1" value="4"></label></div>
+
+        <div class="field"><label>背景色<input type="text" id="bgColor" placeholder="#0f172a"></label><span class="tip">例: #111827 または rgb(17,24,39)</span></div>
+        <div class="field"><label>背景画像URL<input type="text" id="bgImg" placeholder="https://..."></label><span class="tip">空欄でオフ / 直リンク画像を推奨</span></div>
+        <div class="field"><label>画像の表示方法<select id="bgFit"><option value="cover">cover</option><option value="contain">contain</option></select></label></div>
+        <div class="field"><label>暗さ (0〜0.8)<input type="number" id="overlay" min="0" max="0.8" step="0.05" value="0.35"></label></div>
+        <div class="field"><label>ぼかし (px)<input type="number" id="blur" min="0" max="20" step="1" value="0"></label></div>
+
+        <div class="field"><label>効果音 音量 (0〜1)<input type="number" id="vol" min="0" max="1" step="0.05" value="0.7"></label></div>
+        <div class="field"><label>効果音の種類<select id="soundType">
+            <option value="bell">ベル</option>
+            <option value="ding">ディング</option>
+            <option value="wood">ウッド</option>
+            <option value="none">なし</option>
+            <option value="custom">カスタムURL</option>
+        </select></label></div>
+        <div class="field"><label>カスタム音URL<input type="text" id="soundUrl" placeholder="https://.../sound.mp3"></label><span class="tip">MP3/OGG等の直リンク</span></div>
+
+        <div class="field"><button id="save">設定を保存</button></div>
+      </div>
+      <div class="tip" style="margin-top:8px">URLパラメータでも初期設定可能: <code>?bg=%230f172a&img=URL&fit=cover&overlay=0.35&blur=0&sound=bell</code></div>
+    </details>
+
+    <div class="footer">
+      <span>⌨️ ショートカット: Space=開始/停止, R=リセット, S=スキップ</span>
+      <a class="link" id="share" href="#" target="_blank" rel="noopener">この設定で共有</a>
+    </div>
+  </main>
+
+  <audio id="ding" preload="auto"></audio>
+
+  <script>
+    const $ = (s, el=document) => el.querySelector(s);
+    const $$ = (s, el=document) => Array.from(el.querySelectorAll(s));
+    const pad = n => String(n).padStart(2,'0');
+    const qs = new URLSearchParams(location.search);
+
+    const state = {
+      mode: 'focus',
+      order: ['focus','short','focus','short','focus','short','focus','long'],
+      i: 0,
+      left: 25*60,
+      total: 25*60,
+      running: false,
+      cycles: 4,
+      counts: {focus:0},
+      settings: {
+        mFocus: 25, mShort: 5, mLong: 15, cycles: 4,
+        autoStart: false, notif: false, sound: true, vol: 0.7,
+        soundType: 'bell', soundUrl: '',
+        bgColor: getComputedStyle(document.documentElement).getPropertyValue('--bg-color').trim(),
+        bgImg: '', bgFit: 'cover', overlay: 0.35, blur: 0
+      }
+    }
+
+    // Load + URL overrides
+    const saved = JSON.parse(localStorage.getItem('pomodoro:notion')||'{}');
+    Object.assign(state.settings, saved);
+    if(qs.has('bg')) state.settings.bgColor = decodeURIComponent(qs.get('bg'));
+    if(qs.has('img')) state.settings.bgImg   = decodeURIComponent(qs.get('img'));
+    if(qs.has('fit')) state.settings.bgFit   = qs.get('fit');
+    if(qs.has('overlay')) state.settings.overlay = Number(qs.get('overlay'));
+    if(qs.has('blur')) state.settings.blur = Number(qs.get('blur'));
+    if(qs.has('sound')) state.settings.soundType = qs.get('sound');
+    if(qs.has('soundUrl')) state.settings.soundUrl = decodeURIComponent(qs.get('soundUrl'));
+
+    const el = {
+      time: $('#time'), status: $('#status'), progress: $('#progress'),
+      start: $('#start'), reset: $('#reset'), skip: $('#skip'),
+      mFocus: $('#mFocus'), mShort: $('#mShort'), mLong: $('#mLong'), cycles: $('#cycles'),
+      autoStart: $('#autoStart'), notif: $('#notif'), sound: $('#sound'),
+      bgColor: $('#bgColor'), bgImg: $('#bgImg'), bgFit: $('#bgFit'), overlay: $('#overlay'), blur: $('#blur'),
+      vol: $('#vol'), soundType: $('#soundType'), soundUrl: $('#soundUrl'), save: $('#save'), share: $('#share'), ding: $('#ding')
+    };
+
+    function applySettingsToUI(){
+      el.mFocus.value = state.settings.mFocus;
+      el.mShort.value = state.settings.mShort;
+      el.mLong.value = state.settings.mLong;
+      el.cycles.value = state.settings.cycles;
+      el.autoStart.checked = state.settings.autoStart;
+      el.notif.checked = state.settings.notif;
+      el.sound.checked = state.settings.sound;
+      el.vol.value = state.settings.vol;
+      el.bgColor.value = state.settings.bgColor;
+      el.bgImg.value = state.settings.bgImg;
+      el.bgFit.value = state.settings.bgFit;
+      el.overlay.value = state.settings.overlay;
+      el.blur.value = state.settings.blur;
+      el.soundType.value = state.settings.soundType;
+      el.soundUrl.value = state.settings.soundUrl;
+    }
+
+    function applyBackground(){
+      document.documentElement.style.setProperty('--bg-color', state.settings.bgColor || '#0f172a');
+      document.documentElement.style.setProperty('--overlay', String(state.settings.overlay ?? 0.35));
+      document.documentElement.style.setProperty('--blur', state.settings.blur + 'px');
+      if(state.settings.bgImg){
+        document.body.style.backgroundImage = `url("${state.settings.bgImg.replace(/"/g,'')}")`;
+        document.body.style.backgroundSize = state.settings.bgFit;
+        document.body.style.backgroundRepeat = 'no-repeat';
+        document.body.style.backgroundPosition = 'center';
+        document.body.style.backgroundAttachment = 'fixed';
+      } else {
+        document.body.style.backgroundImage = 'none';
+      }
+    }
+
+    function persist(){ localStorage.setItem('pomodoro:notion', JSON.stringify(state.settings)); }
+
+    function buildShareURL(){
+      const u = new URL(location.href);
+      const p = u.searchParams;
+      p.set('bg', state.settings.bgColor);
+      if(state.settings.bgImg) p.set('img', state.settings.bgImg); else p.delete('img');
+      p.set('fit', state.settings.bgFit);
+      p.set('overlay', state.settings.overlay);
+      p.set('blur', state.settings.blur);
+      p.set('sound', state.settings.soundType);
+      if(state.settings.soundType==='custom' && state.settings.soundUrl){ p.set('soundUrl', state.settings.soundUrl) } else { p.delete('soundUrl') }
+      el.share.href = u.toString();
+    }
+
+    // Timer mechanics
+    let raf, last;
+    function setMode(m){
+      state.mode = m;
+      const mins = m==='focus' ? state.settings.mFocus : (m==='short' ? state.settings.mShort : state.settings.mLong);
+      state.total = mins*60; state.left = state.total; state.running=false; updateDisplay();
+      $$('.mode-btn').forEach(b=> b.setAttribute('aria-pressed', String(b.dataset.mode===m)) );
+    }
+    function nextMode(){
+      state.i = (state.i + 1) % state.order.length;
+      const m = state.order[state.i];
+      if(m==='long'){
+        const focusCount = (state.counts.focus||0) % state.settings.cycles;
+        if(focusCount!==0){ state.i = state.order.indexOf('short'); }
+      }
+      setMode(m);
+      if(state.settings.autoStart) start();
+    }
+    const format = t => `${pad(Math.floor(t/60))}:${pad(Math.floor(t%60))}`;
+    function updateDisplay(){
+      el.time.textContent = format(state.left);
+      const label = state.mode==='focus' ? `ポモドーロ #${Math.floor((state.counts.focus||0)+1)}` : (state.mode==='short'?'小休憩':'長休憩');
+      el.status.textContent = label;
+      const p = 1 - (state.left/state.total);
+      const C=352; el.progress.style.strokeDashoffset = String(C - C*p);
+      document.title = `${format(state.left)} • ${state.mode==='focus'?'Pomodoro':'Break'}`;
+      updateFavicon(p);
+    }
+    function tick(ts){
+      if(!state.running){last=ts; return}
+      if(!last) last=ts;
+      const dt = Math.min(1000, ts - last); last = ts;
+      state.left -= dt/1000;
+      if(state.left <= 0){ state.left = 0; updateDisplay(); complete(); return; }
+      updateDisplay();
+      raf = requestAnimationFrame(tick);
+    }
+    function start(){ if(state.running){ state.running=false; return } state.running=true; cancelAnimationFrame(raf); raf = requestAnimationFrame(tick); }
+    function reset(){ setMode(state.mode); }
+    function skip(){ state.left=0; complete(); }
+    function complete(){
+      state.running=false;
+      if(state.mode==='focus'){ state.counts.focus = (state.counts.focus||0)+1 }
+      chime(); notify();
+      if(state.mode==='focus'){
+        if((state.counts.focus % state.settings.cycles)===0){ setMode('long') } else { setMode('short') }
+      } else { setMode('focus') }
+      if(state.settings.autoStart) start();
+    }
+
+    // Sound & Notification
+    function chime(){
+      if(!state.settings.sound) return;
+      if(state.settings.soundType==='custom' && state.settings.soundUrl){
+        el.ding.src = state.settings.soundUrl; el.ding.volume = state.settings.vol; el.ding.currentTime=0; el.ding.play().catch(()=>{});
+        return;
+      }
+      try{
+        const ctx = new (window.AudioContext||window.webkitAudioContext)();
+        const now = ctx.currentTime;
+        const mk = (type,freq,dur,delay,gain=0.3)=>{
+          const o=ctx.createOscillator(); const g=ctx.createGain();
+          o.type=type; o.frequency.setValueAtTime(freq, now+delay);
+          o.connect(g); g.connect(ctx.destination);
+          g.gain.setValueAtTime(0.0001, now+delay);
+          g.gain.exponentialRampToValueAtTime(gain*state.settings.vol, now+delay+0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, now+delay+dur);
+          o.start(now+delay); o.stop(now+delay+dur+0.02);
+        };
+        const t = state.settings.soundType;
+        if(t==='bell'){
+          mk('triangle',880,0.18,0.00,0.35);
+          mk('triangle',660,0.22,0.18,0.28);
+          mk('triangle',440,0.26,0.40,0.22);
+        } else if(t==='ding'){
+          mk('sine',1046.5,0.18,0.00,0.35);
+          mk('sine',1318.5,0.12,0.18,0.25);
+        } else if(t==='wood'){
+          mk('square',600,0.06,0.00,0.28);
+          mk('square',400,0.05,0.07,0.24);
+        } else if(t==='none'){
+          return;
+        } else {
+          mk('sine',880,0.22,0.00,0.3);
+        }
+      }catch(e){
+        el.ding.removeAttribute('src');
+      }
+    }
+    function notify(){
+      if(!state.settings.notif) return;
+      if(Notification && Notification.permission==='granted')
+        new Notification('タイマー終了', { body: state.mode==='focus'?'集中おつかれさま！休憩しましょう':'そろそろ再開しましょう' });
+    }
+
+    // Favicon progress
+    let fav; function updateFavicon(p){
+      if(!fav){ fav = document.createElement('link'); fav.rel='icon'; document.head.appendChild(fav) }
+      const s=64; const c=document.createElement('canvas'); c.width=c.height=s; const x=c.getContext('2d');
+      x.fillStyle='#0b1220'; x.fillRect(0,0,s,s); x.strokeStyle='#10b981'; x.lineWidth=6; x.beginPath(); x.arc(s/2,s/2, s/2-6, -Math.PI/2, (-Math.PI/2)+Math.PI*2*p); x.stroke();
+      x.fillStyle='#e2e8f0'; x.font='700 26px system-ui, sans-serif'; x.textAlign='center'; x.textBaseline='middle';
+      const m=Math.max(0, Math.floor(state.left/60)); x.fillText(m, s/2, s/2);
+      fav.href = c.toDataURL('image/png');
+    }
+
+    // Events
+    el.start.addEventListener('click', start);
+    el.reset.addEventListener('click', reset);
+    el.skip.addEventListener('click', skip);
+    $$('.mode-btn').forEach(b=> b.addEventListener('click', ()=> setMode(b.dataset.mode)) );
+
+    el.save.addEventListener('click', ()=>{
+      state.settings.mFocus = Number(el.mFocus.value)||25;
+      state.settings.mShort = Number(el.mShort.value)||5;
+      state.settings.mLong  = Number(el.mLong.value)||15;
+      state.settings.cycles = Math.max(1, Number(el.cycles.value)||4);
+      state.settings.autoStart = !!el.autoStart.checked;
+      state.settings.notif = !!el.notif.checked;
+      state.settings.sound = !!el.sound.checked;
+      state.settings.vol = Math.max(0, Math.min(1, Number(el.vol.value)||0.7));
+      state.settings.soundType = el.soundType.value;
+      state.settings.soundUrl = el.soundUrl.value.trim();
+      state.settings.bgColor = el.bgColor.value || '#0f172a';
+      state.settings.bgImg = el.bgImg.value || '';
+      state.settings.bgFit = el.bgFit.value;
+      state.settings.overlay = Math.max(0, Math.min(0.8, Number(el.overlay.value)||0.35));
+      state.settings.blur = Math.max(0, Math.min(20, Number(el.blur.value)||0));
+      persist(); applyBackground(); setMode(state.mode); buildShareURL();
+      if(state.settings.notif && Notification && Notification.permission!=='granted') Notification.requestPermission();
+    });
+
+    // Init
+    applySettingsToUI(); applyBackground(); setMode('focus'); buildShareURL(); updateDisplay();
+    if(state.settings.notif && Notification && Notification.permission!=='granted') Notification.requestPermission();
+
+    // Clock (YYYY-MM-DD (曜) HH:MM:SS)
+    const W = ['日','月','火','水','木','金','土'];
+    function updateClock(){
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = pad(d.getMonth()+1);
+      const da = pad(d.getDate());
+      const w = W[d.getDay()];
+      const hh = pad(d.getHours());
+      const mm = pad(d.getMinutes());
+      const ss = pad(d.getSeconds());
+      const s = `${y}-${m}-${da} (${w}) ${hh}:${mm}:${ss}`;
+      const c = document.getElementById('clock'); if(c) c.textContent = s;
+    }
+    updateClock(); setInterval(updateClock, 1000);
+  </script>
+</body>
+</html>
